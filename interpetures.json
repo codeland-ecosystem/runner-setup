@@ -1,0 +1,157 @@
+{
+  "javascript": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | node",
+    "description": "JavaScript is a widely-used scripting language primarily used for front-end web development and server-side applications. It's known for its versatility and extensive ecosystem of libraries and frameworks.",
+    "dependencies": null
+  },
+  "bash": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | bash",
+    "description": "Bash is a Unix shell and scripting language commonly used for system administration and automation tasks. It's a powerful tool for interacting with the command-line interface.",
+    "dependencies": null
+  },
+  "perl": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | perl",
+    "description": "Perl is a high-level, general-purpose scripting language known for its text processing capabilities. It's widely used for automation, web development, and system administration.",
+    "dependencies": null
+  },
+  "python3": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | python3",
+    "description": "Python 3 is a popular and versatile high-level programming language. It's known for its readability and extensive standard library.",
+    "dependencies": null
+  },
+  "python2": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | python",
+    "description": "Python 2 is an earlier version of the Python programming language. It's still used in some legacy projects, although Python 3 is the recommended version.",
+    "dependencies": null
+  },
+  "powershell": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | powershell",
+    "description": "PowerShell is a task automation and configuration management framework from Microsoft. It's commonly used for system administration on Windows.",
+    "dependencies": null
+  },
+  "php": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | php",
+    "description": "PHP is a server-side scripting language primarily used for web development. It's known for its simplicity and integration with web servers.",
+    "dependencies": null
+  },
+  "ruby": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | ruby",
+    "description": "Ruby is a dynamic, object-oriented programming language. It's often used for web development and is known for its readability and productivity.",
+    "dependencies": null
+  },
+  "go": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | go run -",
+    "description": "Go (or Golang) is a statically typed and compiled language developed by Google. It's known for its efficiency and is often used for systems programming.",
+    "dependencies": "golang"
+  },
+  "rust": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | rustc -o run1 - && ./run1",
+    "description": "Rust is a systems programming language that focuses on safety and performance. It's known for preventing common programming errors.",
+    "dependencies": "rustc"
+  },
+  "c": {
+    "bash_line": "echo \"${code_in_base_base64}\" | base64 --decode | gcc -xc -o run1 - && ./run1",
+    "description": "C is a widely-used procedural programming language. It's known for its efficiency and is often used for low-level system programming.",
+    "dependencies": "gcc"
+  },
+  "c++": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | g++ -xc++ -o run1 - && ./run1",
+    "description": "C++ is an extension of the C programming language with added features for object-oriented programming. It's commonly used in game development and system software.",
+    "dependencies": "g++"
+  },
+  "lua": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | lua",
+    "description": "Lua is a lightweight, embeddable scripting language. It's often used in video games, application scripting, and embedded systems.",
+    "dependencies": "lua5.4"
+  },
+  "java": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | java",
+    "description": "Java is a widely-used, object-oriented programming language known for its portability. It's commonly used for enterprise and Android app development.",
+    "dependencies": "openjdk-11-jre"
+  },
+  "csharp": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | mono",
+    "description": "C# (C-sharp) is a Microsoft-developed, object-oriented programming language. It's commonly used for Windows application development.",
+    "dependencies": "mono-runtime"
+  },
+  "typescript": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | ts-node",
+    "description": "TypeScript is a superset of JavaScript that adds static typing. It's commonly used in web development, especially with the Angular framework.",
+    "dependencies": "nodejs"
+  },
+  "md": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | pandoc -f markdown -t html",
+    "description": "Markdown is a lightweight markup language used for formatting plain text. This command converts Markdown to HTML.",
+    "dependencies": "pandoc"
+  },
+  "brainfuck": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | bf",
+    "description": "Brainfuck is an esoteric programming language with a minimalistic set of commands. It's often used for educational purposes and code golfing.",
+    "dependencies": "bf"
+  },
+  "swift": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | swift",
+    "description": "Swift is a programming language developed by Apple. It's commonly used for iOS, macOS, watchOS, and tvOS application development.",
+    "dependencies": "swift"
+  },
+  "solidity": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | solc --allow-paths /usr/bin/ --assemble -o /tmp/ --overwrite --optimize --optimize-runs=2000 --abi --bin /tmp/main.sol",
+    "description": "Solidity is a high-level language for writing smart contracts on the Ethereum blockchain. This command compiles Solidity code.",
+    "dependencies": "solc"
+  },
+  "r": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | Rscript",
+    "description": "R is a programming language and environment for statistical computing and graphics. It's commonly used for data analysis and visualization.",
+    "dependencies": "r-base"
+  },
+  "mustache": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | mustache",
+    "description": "Mustache is a logic-less template language. This command processes Mustache templates.",
+    "dependencies": "mustache"
+  },
+  "ejs": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | ejs",
+    "description": "EJS (Embedded JavaScript) is a simple templating language that lets you generate HTML markup with JavaScript. This command processes EJS templates.",
+    "dependencies": "ejs"
+  },
+  "haskell": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | runhaskell",
+    "description": "Haskell is a functional programming language known for its strong type system. This command runs Haskell programs.",
+    "dependencies": "haskell-platform"
+  },
+  "kotlin": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | kotlinc -include-runtime -d run1.jar && java -jar run1.jar",
+    "description": "Kotlin is a modern programming language developed by JetBrains. This command compiles and runs Kotlin programs.",
+    "dependencies": "kotlin"
+  },
+  "scala": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | scala",
+    "description": "Scala is a general-purpose programming language that combines object-oriented and functional programming. This command runs Scala programs.",
+    "dependencies": "scala"
+  },
+  "lolcode": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | lci",
+    "description": "LOLCODE is an esoteric programming language inspired by internet memes. This command runs LOLCODE programs.",
+    "dependencies": "lci"
+  },
+  "dart": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | dart",
+    "description": "Dart is a programming language developed by Google. It's commonly used for building web and mobile apps, especially with the Flutter framework.",
+    "dependencies": "dart"
+  },
+  "clojure": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | clojure",
+    "description": "Clojure is a Lisp dialect that runs on the Java Virtual Machine (JVM). This command runs Clojure programs.",
+    "dependencies": "clojure"
+  },
+  "groovy": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | groovy",
+    "description": "Groovy is a dynamic language that runs on the Java Virtual Machine (JVM). This command runs Groovy scripts.",
+    "dependencies": "groovy"
+  },
+  "fortran": {
+    "bash_line": "echo \"${code_in_base64}\" | base64 --decode | gfortran -o run1 - && ./run1",
+    "description": "Fortran is a high-level programming language used for numerical and scientific computing. The command compiles and runs Fortran programs.",
+    "dependencies": "gfortran"
+  }
+}
