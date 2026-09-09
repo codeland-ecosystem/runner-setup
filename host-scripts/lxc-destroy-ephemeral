@@ -1,0 +1,22 @@
+#!/bin/bash
+#
+# CodeLand ephemeral runner destroyer.
+#
+# Usage:
+#   lxc-destroy-ephemeral <name>
+#
+# Stops the container, tears down the overlay mounts, and removes the runner.
+
+set -euo pipefail
+
+name="${1:?Usage: lxc-destroy-ephemeral <name>}"
+
+lxc-stop -k -n "$name"
+echo "lxc stop: $? on $name"
+
+sleep 1
+
+sudo /usr/local/bin/lxc-hack-destroy "$name"
+
+lxc-destroy -f -n "$name"
+echo "lxc destroy $? on $name"

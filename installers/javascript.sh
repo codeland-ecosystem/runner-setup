@@ -11,3 +11,5 @@ node --version
 npm --version
 
 # Note: No additional package manager is installed as Node.js and npm are used for JavaScript.
+
+npm install -g express ejs redis axios

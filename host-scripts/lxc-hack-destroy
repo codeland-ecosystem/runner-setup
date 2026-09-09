@@ -1,0 +1,32 @@
+#!/bin/sh
+#
+# CodeLand ephemeral runner teardown.
+#
+# Usage:
+#   lxc-hack-destroy <name>
+#
+# Unmounts the overlay rootfs and tmpfs for a runner. The container directory
+# itself is removed by `lxc-destroy` (called by lxc-destroy-ephemeral after
+# this script). Unmounts retry with a lazy unmount so busy containers do not
+# leave stale mounts behind.
+
+name="${1:?Usage: lxc-hack-destroy <name>}"
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+rootfs="$LXC_DIR/$name/rootfs"
+tmpfs="$LXC_DIR/$name/tmpfs"
+
+# Unmount the overlay rootfs, retrying with a lazy unmount if busy.
+umount -A "$rootfs/"
+echo "umount $rootfs/ $?"
+if mount | grep -q "$rootfs/"; then
+    umount -l -A "$rootfs/"
+    echo "lazy umount $rootfs/ $?"
+fi
+
+# Unmount the tmpfs, retrying with a lazy unmount if busy.
+umount "$tmpfs"
+echo "umount $tmpfs $?"
+if mount | grep -q "$tmpfs"; then
+    umount -l "$tmpfs"
+    echo "lazy umount $tmpfs $?"
+fi

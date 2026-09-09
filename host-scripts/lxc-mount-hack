@@ -1,0 +1,34 @@
+#!/bin/bash
+#
+# CodeLand ephemeral runner overlay mount.
+#
+# Usage:
+#   lxc-mount-hack <name> <base>
+#
+# Mounts an overlay filesystem for a runner: upperdir is the runner's delta0,
+# lowerdir is the base container's rootfs, workdir is the runner's work0.
+
+set -euo pipefail
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <name> <base>"
+    exit 1
+fi
+
+name="$1"
+base="$2"
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+LXC_NAME="$name"
+LXC_BASE="$base"
+
+mount -n -t overlay \
+    -o upperdir="$LXC_DIR/$name/tmpfs/delta0,lowerdir=$LXC_DIR/$base/rootfs,workdir=$LXC_DIR/$name/tmpfs/work0" \
+    none "$LXC_DIR/$name/rootfs/"
+
+chown 165536:16553 "$LXC_DIR/$name/rootfs"
+
+[ -e "$LXC_DIR/$name/configured" ] && exit 0
+for file in "$LXC_DIR/$name/rootfs/etc/hostname" \
+            "$LXC_DIR/$name/rootfs/etc/hosts"; do
+        [ -f "$file" ] && sed -i -e "s/$LXC_BASE/$LXC_NAME/" "$file"
+done

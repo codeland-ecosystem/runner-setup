@@ -1,0 +1,16 @@
+#!/bin/bash
+#
+# CodeLand ephemeral runner ownership fix.
+#
+# Usage:
+#   lxc-hack-chown <name> <subdir>
+#
+# Fixes ownership of a container subdirectory to the virt user.
+
+set -euo pipefail
+
+name="${1:?Usage: lxc-hack-chown <name> <subdir>}"
+subdir="${2:?Usage: lxc-hack-chown <name> <subdir>}"
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+
+chown virt:virt "$LXC_DIR/$name/$subdir/"
