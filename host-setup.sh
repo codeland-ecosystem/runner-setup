@@ -164,7 +164,7 @@ install_host_scripts() {
 	# Allow the runner user to run the privileged helpers without a password.
 	apt-get install -y sudo
 	mkdir -p /etc/sudoers.d
-	echo "${RUNNER_USER} ALL=(ALL) NOPASSWD: /usr/local/bin/lxc-mount-hack, /usr/local/bin/lxc-mount-persistent, /usr/local/bin/lxc-hack-destroy, /usr/local/bin/lxc-hack-chown, /usr/local/bin/clean_crunners.sh" > /etc/sudoers.d/codeland-runner
+	echo "${RUNNER_USER} ALL=(ALL) NOPASSWD: /usr/local/bin/lxc-mount-hack, /usr/local/bin/lxc-mount-persistent, /usr/local/bin/lxc-hack-destroy, /usr/local/bin/lxc-hack-chown, /usr/local/bin/clean_crunners.sh, /usr/bin/mount, /usr/bin/umount, /bin/mount, /bin/umount" > /etc/sudoers.d/codeland-runner
 	chmod 440 /etc/sudoers.d/codeland-runner
 
 	# Unprivileged containers on cgroup v2 need a lingering systemd user

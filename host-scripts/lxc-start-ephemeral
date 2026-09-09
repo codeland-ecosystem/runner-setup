@@ -38,8 +38,9 @@ lxc.net.0.link = {bridge}
 lxc.net.0.hwaddr = {mac}
 lxc.uts.name = {name}
 lxc.rootfs.path = dir:{lxc_dir}/{name}/rootfs
-lxc.hook.pre-start = {lxc_dir}/{name}/pre-mount
 lxc.ephemeral = 1
+# Unprivileged users cannot create AppArmor namespaces; disable it.
+lxc.apparmor.profile = unconfined
 {mem_limit}
 '''
 
