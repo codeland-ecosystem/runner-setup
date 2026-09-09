@@ -109,15 +109,19 @@ install_host_scripts() {
 	log "Installing runner host scripts"
 	local src_dir="$(dirname "$0")/host-scripts"
 
-	# The manager invokes the ephemeral helpers from ~/.local/bin.
-	mkdir -p "${BIN_DIR}"
-	install -m 0755 "${src_dir}/lxc-start-ephemeral" "${BIN_DIR}/lxc-start-ephemeral"
-	install -m 0755 "${src_dir}/lxc-destroy-ephemeral" "${BIN_DIR}/lxc-destroy-ephemeral"
-	install -m 0755 "${src_dir}/lxc-start" "${BIN_DIR}/lxc-start"
-	install -m 0755 "${src_dir}/lxc-copy" "${BIN_DIR}/lxc-copy"
-	install -m 0755 "${src_dir}/lxc-attach" "${BIN_DIR}/lxc-attach"
-	install -m 0755 "${src_dir}/lxc-start-persistent" "${BIN_DIR}/lxc-start-persistent"
-	install -m 0755 "${src_dir}/lxc-stop-persistent" "${BIN_DIR}/lxc-stop-persistent"
+	# The manager connects as the runner user and invokes the ephemeral
+	# helpers from that user's ~/.local/bin (over SSH, non-login shell). So
+	# install them there, not in root's home.
+	local run_bin="/home/${RUNNER_USER}/.local/bin"
+	mkdir -p "${run_bin}"
+	install -m 0755 "${src_dir}/lxc-start-ephemeral" "${run_bin}/lxc-start-ephemeral"
+	install -m 0755 "${src_dir}/lxc-destroy-ephemeral" "${run_bin}/lxc-destroy-ephemeral"
+	install -m 0755 "${src_dir}/lxc-start" "${run_bin}/lxc-start"
+	install -m 0755 "${src_dir}/lxc-copy" "${run_bin}/lxc-copy"
+	install -m 0755 "${src_dir}/lxc-attach" "${run_bin}/lxc-attach"
+	install -m 0755 "${src_dir}/lxc-start-persistent" "${run_bin}/lxc-start-persistent"
+	install -m 0755 "${src_dir}/lxc-stop-persistent" "${run_bin}/lxc-stop-persistent"
+	chown -R "${RUNNER_USER}:${RUNNER_USER}" "${run_bin}"
 
 	# The privileged helpers live in /usr/local/bin (they use sudo).
 	install -m 0755 "${src_dir}/lxc-mount-hack" /usr/local/bin/lxc-mount-hack
@@ -127,6 +131,8 @@ install_host_scripts() {
 	install -m 0755 "${src_dir}/clean_crunners.sh" /usr/local/bin/clean_crunners.sh
 
 	# Allow the runner user to run the privileged helpers without a password.
+	apt-get install -y sudo
+	mkdir -p /etc/sudoers.d
 	echo "${RUNNER_USER} ALL=(ALL) NOPASSWD: /usr/local/bin/lxc-mount-hack, /usr/local/bin/lxc-mount-persistent, /usr/local/bin/lxc-hack-destroy, /usr/local/bin/lxc-hack-chown, /usr/local/bin/clean_crunners.sh" > /etc/sudoers.d/codeland-runner
 	chmod 440 /etc/sudoers.d/codeland-runner
 
@@ -196,14 +202,28 @@ install_openresty() {
 
 	# Install OpenResty from the official apt repo.
 	apt-get install -y curl gnupg2 ca-certificates lsb-release
-	curl -fsSL https://openresty.org/package/pubkey.gpg | gpg --dearmor -o /usr/share/keyrings/openresty.gpg
-	echo "deb [signed-by=/usr/share/keyrings/openresty.gpg] http://openresty.org/package/debian $(lsb_release -sc) main" \
+
+	# OpenResty only publishes Debian repos up to bookworm. On newer releases
+	# (e.g. trixie) fall back to bookworm; the package installs fine.
+	# Note: OpenResty's signing key still uses SHA1, which Debian 13 apt
+	# rejects, so we mark the repo as [trusted=yes]. It is fetched over plain
+	# http, so pin this to an internal/trusted network only.
+	local dist="$(lsb_release -sc)"
+	if [[ "${dist}" != "bookworm" && "${dist}" != "bullseye" && "${dist}" != "buster" ]]; then
+		warn "OpenResty has no ${dist} repo; using bookworm instead."
+		dist="bookworm"
+	fi
+
+	echo "deb [trusted=yes] http://openresty.org/package/debian ${dist} openresty" \
 		> /etc/apt/sources.list.d/openresty.list
 	apt-get update
 	apt-get install -y openresty
 
 	# Install the runner proxy config.
 	install -m 0644 "${src_conf}" /etc/openresty/nginx.conf
+
+	# The proxy config writes to these log paths; ensure they exist.
+	mkdir -p /var/log/nginx /usr/local/openresty/nginx/logs
 
 	# Restart OpenResty to pick up the new config.
 	systemctl restart openresty
@@ -212,30 +232,41 @@ install_openresty() {
 # ---------------------------------------------------------------------------
 # 5. Build the base runner container
 # ---------------------------------------------------------------------------
-build_runner_template() {
-	log "Building base container '${RUNNER_TEMPLATE}'"
-	mkdir -p "${LXC_DIR}"
+# Run a command as the runner user with a working systemd user session, so
+# unprivileged LXC operations work on a cgroup v2 host.
+as_runner() {
+	sudo -u "${RUNNER_USER}" \
+		XDG_RUNTIME_DIR="/run/user/$(id -u "${RUNNER_USER}")" \
+		DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "${RUNNER_USER}")/bus" \
+		"$@"
+}
 
-	if lxc-info -n "${RUNNER_TEMPLATE}" &>/dev/null; then
+build_runner_template() {
+	log "Building base container '${RUNNER_TEMPLATE}' as user '${RUNNER_USER}'"
+	local lxc_dir="/home/${RUNNER_USER}/.local/share/lxc"
+	mkdir -p "${lxc_dir}"
+	chown -R "${RUNNER_USER}:${RUNNER_USER}" "${lxc_dir}"
+
+	if as_runner lxc-info -n "${RUNNER_TEMPLATE}" &>/dev/null; then
 		warn "Container '${RUNNER_TEMPLATE}' already exists, skipping creation."
 		return
 	fi
 
-	lxc-create -n "${RUNNER_TEMPLATE}" -t download -- \
+	as_runner lxc-create -n "${RUNNER_TEMPLATE}" -t download -- \
 		--dist "${RUNNER_DISTRO}" \
 		--release "${RUNNER_RELEASE}" \
 		--arch "${RUNNER_ARCH}" \
 		--force-cache
 
 	# Enable autostart so the template survives reboots.
-	echo "lxc.start.auto = 1" >> "${LXC_DIR}/${RUNNER_TEMPLATE}/config"
+	echo "lxc.start.auto = 1" >> "${lxc_dir}/${RUNNER_TEMPLATE}/config"
 
 	log "Starting '${RUNNER_TEMPLATE}' to install language runtimes"
-	lxc-start -n "${RUNNER_TEMPLATE}" --daemon
+	as_runner lxc-start -n "${RUNNER_TEMPLATE}" --daemon
 
 	# Wait for the container to be ready.
 	for _ in $(seq 1 30); do
-		if lxc-info -n "${RUNNER_TEMPLATE}" | grep -q RUNNING; then
+		if as_runner lxc-info -n "${RUNNER_TEMPLATE}" | grep -q RUNNING; then
 			break
 		fi
 		sleep 1
@@ -244,7 +275,7 @@ build_runner_template() {
 	# Install the language runtimes inside the container.
 	install_languages_in_container
 
-	lxc-stop -n "${RUNNER_TEMPLATE}"
+	as_runner lxc-stop -n "${RUNNER_TEMPLATE}"
 	log "Base container '${RUNNER_TEMPLATE}' is ready."
 }
 
@@ -253,7 +284,7 @@ install_languages_in_container() {
 	local script_dir="$(dirname "$0")/installers"
 
 	# Each installer uses `sudo apt`, so ensure sudo is present first.
-	lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -c \
+	as_runner lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -c \
 		"apt-get update && apt-get install -y sudo"
 
 	local failed=0
@@ -262,7 +293,7 @@ install_languages_in_container() {
 		# Run each installer independently so one failure does not abort the
 		# whole base-container build (e.g. an interpreter not packaged on
 		# this distro).
-		if ! lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -s < "${installer}"; then
+		if ! as_runner lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -s < "${installer}"; then
 			warn "  $(basename "${installer}") failed; continuing."
 			failed=$((failed+1))
 		fi
