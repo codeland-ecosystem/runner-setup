@@ -25,10 +25,14 @@ RUNNER_ARCH="${RUNNER_ARCH:-amd64}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 LXC_DIR="${LXC_DIR:-$HOME/.local/share/lxc}"
 
-# Shared NFS export for persistent runners. Set NFS_SERVER to enable.
+# Shared NFS export for persistent runners. Set NFS_SERVER to enable (or set
+# RUN_NFS_SERVER=1 to make THIS host the NFS server).
 NFS_DIR="${NFS_DIR:-/nfs/runners}"
 NFS_SERVER="${NFS_SERVER:-}"
 NFS_PATH="${NFS_PATH:-/srv/runners}"
+RUN_NFS_SERVER="${RUN_NFS_SERVER:-0}"
+# Subnet to export the NFS share to (used when RUN_NFS_SERVER=1).
+NFS_EXPORT_SUBNET="${NFS_EXPORT_SUBNET:-192.168.1.0/24}"
 
 # The manager's public key to authorize for the virt user. Set this to the
 # contents of the manager's id_rsa_cl-worker.pub, or pass it via env.
@@ -124,6 +128,33 @@ install_host_scripts() {
 }
 
 # ---------------------------------------------------------------------------
+# 4. Run the NFS server on THIS host (optional)
+# ---------------------------------------------------------------------------
+run_nfs_server() {
+	if [[ "${RUN_NFS_SERVER}" != "1" ]]; then
+		return
+	fi
+
+	log "Configuring THIS host as the NFS server for persistent runners"
+	apt-get install -y nfs-kernel-server
+
+	mkdir -p "${NFS_PATH}"
+	chown -R "${RUNNER_USER}:${RUNNER_USER}" "${NFS_PATH}"
+
+	# Export the share. no_root_squash is required so the runner's mapped
+	# subuid ownership (165536) survives over NFS.
+	if [[ -f /etc/exports ]] && ! grep -q "${NFS_PATH}" /etc/exports; then
+		echo "${NFS_PATH} ${NFS_EXPORT_SUBNET}(rw,sync,no_subtree_check,no_root_squash)" >> /etc/exports
+		exportfs -ra
+	fi
+
+	systemctl enable --now nfs-server
+
+	# Point the local worker at the share it just exported.
+	NFS_SERVER="${NFS_SERVER:-$(hostname -I | awk '{print $1}')}"
+}
+
+# ---------------------------------------------------------------------------
 # 4. Mount the shared NFS export for persistent runners
 # ---------------------------------------------------------------------------
 mount_nfs() {
@@ -213,15 +244,25 @@ install_languages_in_container() {
 	log "Installing language runtimes inside '${RUNNER_TEMPLATE}'"
 	local script_dir="$(dirname "$0")/installers"
 
-	# Concatenate all installer scripts and run them inside the container.
 	# Each installer uses `sudo apt`, so ensure sudo is present first.
 	lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -c \
 		"apt-get update && apt-get install -y sudo"
 
+	local failed=0
 	for installer in "${script_dir}"/*.sh; do
 		log "  Running $(basename "${installer}")"
-		lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -s < "${installer}"
+		# Run each installer independently so one failure does not abort the
+		# whole base-container build (e.g. an interpreter not packaged on
+		# this distro).
+		if ! lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -s < "${installer}"; then
+			warn "  $(basename "${installer}") failed; continuing."
+			failed=$((failed+1))
+		fi
 	done
+
+	if [[ "${failed}" -gt 0 ]]; then
+		warn "${failed} installer(s) failed. The base container may be missing some runtimes."
+	fi
 }
 
 # ---------------------------------------------------------------------------
@@ -232,6 +273,7 @@ main() {
 	install_lxc
 	create_runner_user
 	install_host_scripts
+	run_nfs_server
 	mount_nfs
 	install_openresty
 	build_runner_template
