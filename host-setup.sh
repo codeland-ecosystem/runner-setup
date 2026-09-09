@@ -103,6 +103,22 @@ lxc.apparmor.profile = unconfined
 EOF
 	chown -R "${RUNNER_USER}:${RUNNER_USER}" "/home/${RUNNER_USER}/.config"
 
+	# The mapped container-root uid (165536) must traverse the runner's home
+	# to reach the container dirs. Grant x via ACL (needs the acl package).
+	apt-get install -y acl
+	setfacl -m u:165536:x "/home/${RUNNER_USER}" || warn "Could not set home ACL for container root."
+
+	# Unprivileged users need /etc/lxc/lxc-usernet to attach veth interfaces
+	# to the bridge.
+	if [[ ! -f /etc/lxc/lxc-usernet ]]; then
+		cat > /etc/lxc/lxc-usernet <<EOF
+# ${RUNNER_USER}: allow up to 10 veth/vlan/macvlan interfaces on lxcbr0
+${RUNNER_USER} veth lxcbr0 10
+${RUNNER_USER} vlan lxcbr0 10
+${RUNNER_USER} macvlan lxcbr0 10
+EOF
+	fi
+
 	# Authorize the manager's SSH key so it can drive the worker.
 	if [[ -n "${MANAGER_PUBKEY}" ]]; then
 		local ssh_dir="/home/${RUNNER_USER}/.ssh"
