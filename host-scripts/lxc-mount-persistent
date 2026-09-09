@@ -27,7 +27,7 @@ mount -n -t overlay \
     -o upperdir="$NFS_DIR/$name/delta0,lowerdir=$LXC_DIR/$base/rootfs,workdir=$NFS_DIR/$name/work0" \
     none "$LXC_DIR/$name/rootfs/"
 
-chown 165536:16553 "$LXC_DIR/$name/rootfs"
+chown 165536:165536 "$LXC_DIR/$name/rootfs"
 
 [ -e "$LXC_DIR/$name/configured" ] && exit 0
 for file in "$LXC_DIR/$name/rootfs/etc/hostname" \

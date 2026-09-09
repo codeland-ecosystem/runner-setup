@@ -80,6 +80,14 @@ create_runner_user() {
 	# Allow the runner user to manage LXC containers.
 	usermod -aG lxc "${RUNNER_USER}" || true
 
+	# Set up subuid/subgid ranges for unprivileged containers. The runner
+	# scripts map container uid 0 -> host uid 165536, so give the runner user
+	# that range. Only add if not already configured.
+	if ! grep -qE "^${RUNNER_USER}:" /etc/subuid; then
+		echo "${RUNNER_USER}:165536:65536" >> /etc/subuid
+		echo "${RUNNER_USER}:165536:65536" >> /etc/subgid
+	fi
+
 	# Authorize the manager's SSH key so it can drive the worker.
 	if [[ -n "${MANAGER_PUBKEY}" ]]; then
 		local ssh_dir="/home/${RUNNER_USER}/.ssh"
