@@ -62,4 +62,3 @@ systemctl enable crunner.service
 systemctl start crunner.service
 
 echo "crunner installed on port ${RUNNER_PORT}"
-/usr/local/bin/crunner --version 2>/dev/null || crunner 2>&1 | head -1 || true

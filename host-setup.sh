@@ -250,8 +250,12 @@ install_openresty() {
 	apt-get update
 	apt-get install -y openresty
 
-	# Install the runner proxy config.
-	install -m 0644 "${src_conf}" /etc/openresty/nginx.conf
+	# Install the runner proxy config, substituting the LXC bridge DNS IP so
+	# container hostnames resolve through this worker's dnsmasq.
+	local bridge_dns="$(ip -4 addr show lxcbr0 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1)"
+	[[ -z "${bridge_dns}" ]] && bridge_dns="172.16.0.1"
+	sed "s/__LXC_BRIDGE_DNS__/${bridge_dns}/" "${src_conf}" > /etc/openresty/nginx.conf
+	log "OpenResty resolver set to ${bridge_dns}"
 
 	# The proxy config writes to these log paths; ensure they exist.
 	mkdir -p /var/log/nginx /usr/local/openresty/nginx/logs
