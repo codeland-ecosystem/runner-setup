@@ -88,6 +88,19 @@ create_runner_user() {
 		echo "${RUNNER_USER}:165536:65536" >> /etc/subgid
 	fi
 
+	# Create an LXC default config for the runner user so unprivileged
+	# lxc-create works (it otherwise fails without uid mappings).
+	local lxc_conf_dir="/home/${RUNNER_USER}/.config/lxc"
+	mkdir -p "${lxc_conf_dir}"
+	cat > "${lxc_conf_dir}/default.conf" <<EOF
+lxc.include = /etc/lxc/default.conf
+lxc.idmap = u 0 165536 65536
+lxc.idmap = g 0 165536 65536
+lxc.net.0.type = veth
+lxc.net.0.link = lxcbr0
+EOF
+	chown -R "${RUNNER_USER}:${RUNNER_USER}" "/home/${RUNNER_USER}/.config"
+
 	# Authorize the manager's SSH key so it can drive the worker.
 	if [[ -n "${MANAGER_PUBKEY}" ]]; then
 		local ssh_dir="/home/${RUNNER_USER}/.ssh"
