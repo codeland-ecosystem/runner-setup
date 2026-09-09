@@ -98,6 +98,8 @@ lxc.idmap = u 0 165536 65536
 lxc.idmap = g 0 165536 65536
 lxc.net.0.type = veth
 lxc.net.0.link = lxcbr0
+# Unprivileged users cannot create AppArmor namespaces; disable it.
+lxc.apparmor.profile = unconfined
 EOF
 	chown -R "${RUNNER_USER}:${RUNNER_USER}" "/home/${RUNNER_USER}/.config"
 
