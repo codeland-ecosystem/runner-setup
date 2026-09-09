@@ -1,0 +1,36 @@
+#!/bin/bash
+#
+# CodeLand persistent runner overlay mount.
+#
+# Usage:
+#   lxc-mount-persistent <name> <base>
+#
+# Mounts an overlay filesystem for a persistent runner. The upperdir (writable
+# layer) lives on the shared NFS export so the runner can move between workers;
+# the lowerdir (base rootfs) stays local.
+
+set -euo pipefail
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <name> <base>"
+    exit 1
+fi
+
+name="$1"
+base="$2"
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+NFS_DIR="${NFS_DIR:-/nfs/runners}"
+LXC_NAME="$name"
+LXC_BASE="$base"
+
+mount -n -t overlay \
+    -o upperdir="$NFS_DIR/$name/delta0,lowerdir=$LXC_DIR/$base/rootfs,workdir=$NFS_DIR/$name/work0" \
+    none "$LXC_DIR/$name/rootfs/"
+
+chown 165536:16553 "$LXC_DIR/$name/rootfs"
+
+[ -e "$LXC_DIR/$name/configured" ] && exit 0
+for file in "$LXC_DIR/$name/rootfs/etc/hostname" \
+            "$LXC_DIR/$name/rootfs/etc/hosts"; do
+        [ -f "$file" ] && sed -i -e "s/$LXC_BASE/$LXC_NAME/" "$file"
+done

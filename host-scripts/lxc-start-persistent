@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+#
+# CodeLand persistent runner creator.
+#
+# Usage:
+#   lxc-start-persistent <name> <base> [memLimit]
+#
+# Creates an overlay-backed LXC container named <name> from the base container
+# <base>, with the writable layer (delta0) stored on a shared NFS export so the
+# runner can move between workers. The lowerdir (base rootfs) stays local.
+#
+# Unlike lxc-start-ephemeral, the writable layer is NOT on tmpfs and is NOT
+# destroyed on stop. Stopping is handled by lxc-stop-persistent.
+#
+# Paths and the idmap base are configurable via environment variables.
+
+import subprocess
+import random
+import re
+import sys
+import os
+
+LXC_DIR = os.environ.get("LXC_DIR", "/home/virt/.local/share/lxc")
+NFS_DIR = os.environ.get("NFS_DIR", "/nfs/runners")
+IDMAP_BASE = int(os.environ.get("LXC_IDMAP_BASE", "165536"))
+IDMAP_SIZE = int(os.environ.get("LXC_IDMAP_SIZE", "65536"))
+LXC_BRIDGE = os.environ.get("LXC_BRIDGE", "lxcbr0")
+
+config = '''
+lxc.include = /usr/share/lxc/config/debian.common.conf
+lxc.include = /usr/share/lxc/config/debian.userns.conf
+lxc.arch = x86_64
+# Container specific configuration
+lxc.idmap = u 0 {idmap_base} {idmap_size}
+lxc.idmap = g 0 {idmap_base} {idmap_size}
+lxc.rootfs.path = dir:{lxc_dir}/{base}/rootfs
+lxc.uts.name = {base}
+# Network configuration
+lxc.net.0.type = veth
+lxc.net.0.link = {bridge}
+lxc.net.0.hwaddr = {mac}
+lxc.uts.name = {name}
+lxc.rootfs.path = dir:{lxc_dir}/{name}/rootfs
+lxc.hook.pre-start = {lxc_dir}/{name}/pre-mount
+lxc.ephemeral = 1
+{mem_limit}
+'''
+
+pre_mount = '''#!/bin/sh
+LXC_DIR="{lxc_dir}"
+NFS_DIR="{nfs_dir}"
+LXC_BASE="{base}"
+LXC_NAME="{name}"
+mkdir -p {lxc_dir}/{name}/rootfs
+mkdir -p {nfs_dir}/{name}/delta0 {nfs_dir}/{name}/work0
+getfacl -a ../{base}/rootfs | setfacl --set-file=- {nfs_dir}/{name}/delta0 || true
+getfacl -a ../{base}/rootfs | setfacl --set-file=- {lxc_dir}/{name}/rootfs/ || true
+sudo /usr/local/bin/lxc-mount-persistent "{name}" "{base}"
+
+'''
+
+
+def generate_random_mac_address():
+    mac_bytes = [random.randint(0x00, 0xFF) for _ in range(6)]
+    return ":".join("{:02x}".format(byte) for byte in mac_bytes)
+
+
+def parse_mem_limit(limit):
+    """Return a cgroup v2 memory.max line, or empty string if no limit."""
+    if not limit:
+        return ""
+    if isinstance(limit, int):
+        return "lxc.cgroup2.memory.max = {}".format(limit)
+    if isinstance(limit, str):
+        match = re.match(r"^(\d+(?:\.\d+)?)\s*([kmgt]?i?b?)$", limit.strip().lower())
+        if not match:
+            return ""
+        value = float(match.group(1))
+        unit = match.group(2)
+        multiplier = {"b": 1, "kb": 1024, "mb": 1024**2, "gb": 1024**3, "tb": 1024**4}.get(unit)
+        if multiplier is None:
+            multiplier = {"k": 1024, "m": 1024**2, "g": 1024**3, "t": 1024**4}.get(unit, 1)
+        return "lxc.cgroup2.memory.max = {}".format(int(value * multiplier))
+    return ""
+
+
+if len(sys.argv) not in (3, 4):
+    print("Usage: {} <name> <base> [memLimit]".format(sys.argv[0]))
+    sys.exit(1)
+
+name = sys.argv[1]
+base = sys.argv[2]
+mem_limit = parse_mem_limit(sys.argv[3] if len(sys.argv) == 4 else None)
+
+directory_path = os.path.join(LXC_DIR, name)
+
+try:
+    os.makedirs(directory_path)
+    print("Directory '{}' created successfully.".format(directory_path))
+except OSError as e:
+    print("Error creating directory '{}': {}".format(directory_path, e))
+
+try:
+    os.makedirs(os.path.join(directory_path, "rootfs"))
+    print("Directory 'rootfs' created successfully.")
+except OSError as e:
+    print("Error creating directory rootfs: {}".format(e))
+
+with open(os.path.join(directory_path, "config"), "w") as file:
+    file.write(config.format(
+        name=name,
+        base=base,
+        mac=generate_random_mac_address(),
+        idmap_base=IDMAP_BASE,
+        idmap_size=IDMAP_SIZE,
+        lxc_dir=LXC_DIR,
+        bridge=LXC_BRIDGE,
+        mem_limit=mem_limit,
+    ))
+
+with open(os.path.join(directory_path, "pre-mount"), "w") as file:
+    file.write(pre_mount.format(name=name, base=base, lxc_dir=LXC_DIR, nfs_dir=NFS_DIR))
+
+os.chmod(os.path.join(directory_path, "pre-mount"), 0o755)
+
+try:
+    completed_process = subprocess.run(
+        "bash pre-mount", shell=True, check=True, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=directory_path)
+    print("pre Command Output:")
+    print(completed_process.stdout)
+    print("pre Command Error:")
+    print(completed_process.stderr)
+except subprocess.CalledProcessError as e:
+    print("Error running the command: {}".format(e))
+
+bash_command = "~/.local/bin/lxc-start -n {} --logfile={}.log".format(name, name)
+
+try:
+    completed_process = subprocess.run(
+        bash_command, shell=True, check=True, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    print("Command Output:")
+    print(completed_process.stdout)
+    print("Command Error:")
+    print(completed_process.stderr)
+except subprocess.CalledProcessError as e:
+    print("Error running the command: {}".format(e))

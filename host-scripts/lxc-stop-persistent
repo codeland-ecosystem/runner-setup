@@ -1,0 +1,34 @@
+#!/bin/bash
+#
+# CodeLand persistent runner stop.
+#
+# Usage:
+#   lxc-stop-persistent <name>
+#
+# Stops a persistent runner and unmounts its overlay, but KEEPS the writable
+# layer (delta0) on NFS so the runner can be restarted or moved to another
+# worker. The local container directory is removed; the NFS state is preserved.
+
+set -euo pipefail
+
+name="${1:?Usage: lxc-stop-persistent <name>}"
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+
+lxc-stop -k -n "$name"
+echo "lxc stop: $? on $name"
+
+sleep 1
+
+# Unmount the overlay rootfs, retrying with a lazy unmount if busy.
+umount -A "$LXC_DIR/$name/rootfs/"
+echo "umount $LXC_DIR/$name/rootfs/ $?"
+if mount | grep -q "$LXC_DIR/$name/rootfs/"; then
+    umount -l -A "$LXC_DIR/$name/rootfs/"
+    echo "lazy umount $LXC_DIR/$name/rootfs/ $?"
+fi
+
+# Remove the local container directory (config, rootfs mountpoint, logs).
+# The NFS delta0/work0 are intentionally left in place.
+rm -rf "$LXC_DIR/$name"
+
+echo "Persistent runner '$name' stopped; NFS state preserved."

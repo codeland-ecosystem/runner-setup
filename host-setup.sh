@@ -25,6 +25,11 @@ RUNNER_ARCH="${RUNNER_ARCH:-amd64}"
 BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 LXC_DIR="${LXC_DIR:-$HOME/.local/share/lxc}"
 
+# Shared NFS export for persistent runners. Set NFS_SERVER to enable.
+NFS_DIR="${NFS_DIR:-/nfs/runners}"
+NFS_SERVER="${NFS_SERVER:-}"
+NFS_PATH="${NFS_PATH:-/srv/runners}"
+
 # The manager's public key to authorize for the virt user. Set this to the
 # contents of the manager's id_rsa_cl-worker.pub, or pass it via env.
 MANAGER_PUBKEY="${MANAGER_PUBKEY:-}"
@@ -99,20 +104,48 @@ install_host_scripts() {
 	install -m 0755 "${src_dir}/lxc-start" "${BIN_DIR}/lxc-start"
 	install -m 0755 "${src_dir}/lxc-copy" "${BIN_DIR}/lxc-copy"
 	install -m 0755 "${src_dir}/lxc-attach" "${BIN_DIR}/lxc-attach"
+	install -m 0755 "${src_dir}/lxc-start-persistent" "${BIN_DIR}/lxc-start-persistent"
+	install -m 0755 "${src_dir}/lxc-stop-persistent" "${BIN_DIR}/lxc-stop-persistent"
 
 	# The privileged helpers live in /usr/local/bin (they use sudo).
 	install -m 0755 "${src_dir}/lxc-mount-hack" /usr/local/bin/lxc-mount-hack
+	install -m 0755 "${src_dir}/lxc-mount-persistent" /usr/local/bin/lxc-mount-persistent
 	install -m 0755 "${src_dir}/lxc-hack-destroy" /usr/local/bin/lxc-hack-destroy
 	install -m 0755 "${src_dir}/lxc-hack-chown" /usr/local/bin/lxc-hack-chown
 	install -m 0755 "${src_dir}/clean_crunners.sh" /usr/local/bin/clean_crunners.sh
 
 	# Allow the runner user to run the privileged helpers without a password.
-	echo "${RUNNER_USER} ALL=(ALL) NOPASSWD: /usr/local/bin/lxc-mount-hack, /usr/local/bin/lxc-hack-destroy, /usr/local/bin/lxc-hack-chown, /usr/local/bin/clean_crunners.sh" > /etc/sudoers.d/codeland-runner
+	echo "${RUNNER_USER} ALL=(ALL) NOPASSWD: /usr/local/bin/lxc-mount-hack, /usr/local/bin/lxc-mount-persistent, /usr/local/bin/lxc-hack-destroy, /usr/local/bin/lxc-hack-chown, /usr/local/bin/clean_crunners.sh" > /etc/sudoers.d/codeland-runner
 	chmod 440 /etc/sudoers.d/codeland-runner
 
 	# Unprivileged containers on cgroup v2 need a lingering systemd user
 	# session for the runner user.
 	loginctl enable-linger "${RUNNER_USER}" || true
+}
+
+# ---------------------------------------------------------------------------
+# 4. Mount the shared NFS export for persistent runners
+# ---------------------------------------------------------------------------
+mount_nfs() {
+	log "Mounting shared NFS export for persistent runners"
+	mkdir -p "${NFS_DIR}"
+
+	if [[ -z "${NFS_SERVER}" ]]; then
+		warn "NFS_SERVER not set; skipping NFS mount. Persistent runners will not work until it is mounted."
+		return
+	fi
+
+	local nfs_path="${NFS_PATH:-/srv/runners}"
+
+	# Mount if not already mounted.
+	if ! mountpoint -q "${NFS_DIR}"; then
+		mount -t nfs "${NFS_SERVER}:${nfs_path}" "${NFS_DIR}"
+	fi
+
+	# Persist across reboots.
+	if ! grep -q "${NFS_DIR}" /etc/fstab; then
+		echo "${NFS_SERVER}:${nfs_path}  ${NFS_DIR}  nfs  defaults,noatime  0  0" >> /etc/fstab
+	fi
 }
 
 # ---------------------------------------------------------------------------
@@ -199,6 +232,7 @@ main() {
 	install_lxc
 	create_runner_user
 	install_host_scripts
+	mount_nfs
 	install_openresty
 	build_runner_template
 
