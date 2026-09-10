@@ -5,12 +5,18 @@
 # Usage:
 #   lxc-start-persistent <name> <base> [memLimit]
 #
-# Creates an overlay-backed LXC container named <name> from the base container
-# <base>, with the writable layer (delta0) stored on a shared NFS export so the
-# runner can move between workers. The lowerdir (base rootfs) stays local.
+# Creates an LXC container named <name> whose entire rootfs lives on a shared
+# NFS export, so it survives restarts and can move between workers. The
+# rootfs is a one-time `cp -a` of the base container <base>'s rootfs onto
+# NFS (see lxc-hack-clone-rootfs); after that first run, writes go straight
+# to the NFS-backed rootfs and persist across stop/start/migrate with no
+# extra step.
 #
-# Unlike lxc-start-ephemeral, the writable layer is NOT on tmpfs and is NOT
-# destroyed on stop. Stopping is handled by lxc-stop-persistent.
+# This deliberately does NOT use an overlay (base rootfs as lowerdir + NFS as
+# upperdir), unlike lxc-start-ephemeral. The kernel's overlayfs rejects NFS
+# as an upperdir outright ("overlayfs: upper fs missing required features" --
+# NFS lacks the xattr/tmpfile/RENAME_WHITEOUT support overlayfs needs from
+# its upper layer), so that combination cannot work.
 #
 # Paths and the idmap base are configurable via environment variables.
 
@@ -33,36 +39,31 @@ lxc.arch = x86_64
 # Container specific configuration
 lxc.idmap = u 0 {idmap_base} {idmap_size}
 lxc.idmap = g 0 {idmap_base} {idmap_size}
-lxc.rootfs.path = dir:{lxc_dir}/{base}/rootfs
-lxc.uts.name = {base}
+lxc.uts.name = {name}
+lxc.rootfs.path = dir:{nfs_dir}/{name}/rootfs
 # Network configuration
 lxc.net.0.type = veth
 lxc.net.0.link = {bridge}
 lxc.net.0.hwaddr = {mac}
-lxc.uts.name = {name}
-lxc.rootfs.path = dir:{lxc_dir}/{name}/rootfs
-lxc.ephemeral = 1
 # Unprivileged users cannot create AppArmor namespaces; disable it.
 lxc.apparmor.profile = unconfined
 {mem_limit}
 '''
 
 pre_mount = '''#!/bin/sh
-LXC_DIR="{lxc_dir}"
-NFS_DIR="{nfs_dir}"
-LXC_BASE="{base}"
-LXC_NAME="{name}"
-mkdir -p {lxc_dir}/{name}/rootfs
-mkdir -p {nfs_dir}/{name}/delta0 {nfs_dir}/{name}/work0
-getfacl -a ../{base}/rootfs | setfacl --set-file=- {nfs_dir}/{name}/delta0 || true
-getfacl -a ../{base}/rootfs | setfacl --set-file=- {lxc_dir}/{name}/rootfs/ || true
-sudo /usr/local/bin/lxc-mount-persistent "{name}" "{base}"
+set -e
+sudo /usr/local/bin/lxc-hack-clone-rootfs "{name}" "{base}"
 
 '''
 
 
 def generate_random_mac_address():
-    mac_bytes = [random.randint(0x00, 0xFF) for _ in range(6)]
+    # First byte must have the multicast bit (LSB) clear and the locally
+    # administered bit set, or the kernel refuses it on the veth with
+    # "Cannot assign requested address" (SIOCSIFHWADDR/EADDRNOTAVAIL) --
+    # a ~50% chance failure with a fully random first byte.
+    first = (random.randint(0x00, 0xFF) & 0xFE) | 0x02
+    mac_bytes = [first] + [random.randint(0x00, 0xFF) for _ in range(5)]
     return ":".join("{:02x}".format(byte) for byte in mac_bytes)
 
 
@@ -85,6 +86,27 @@ def parse_mem_limit(limit):
     return ""
 
 
+def run_step(description, command, **kwargs):
+    """Run a subprocess step and exit(1) on failure instead of swallowing
+    the error -- a silently-ignored failure here (e.g. a bad rootfs mount)
+    used to surface only much later as a confusing unrelated error."""
+    try:
+        completed = subprocess.run(
+            command, shell=True, check=True, text=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+        if completed.stdout:
+            print(completed.stdout)
+        if completed.stderr:
+            print(completed.stderr)
+    except subprocess.CalledProcessError as e:
+        print("{} failed (exit {}):".format(description, e.returncode))
+        if e.stdout:
+            print(e.stdout)
+        if e.stderr:
+            print(e.stderr)
+        sys.exit(1)
+
+
 if len(sys.argv) not in (3, 4):
     print("Usage: {} <name> <base> [memLimit]".format(sys.argv[0]))
     sys.exit(1)
@@ -95,17 +117,7 @@ mem_limit = parse_mem_limit(sys.argv[3] if len(sys.argv) == 4 else None)
 
 directory_path = os.path.join(LXC_DIR, name)
 
-try:
-    os.makedirs(directory_path)
-    print("Directory '{}' created successfully.".format(directory_path))
-except OSError as e:
-    print("Error creating directory '{}': {}".format(directory_path, e))
-
-try:
-    os.makedirs(os.path.join(directory_path, "rootfs"))
-    print("Directory 'rootfs' created successfully.")
-except OSError as e:
-    print("Error creating directory rootfs: {}".format(e))
+os.makedirs(directory_path, exist_ok=True)
 
 with open(os.path.join(directory_path, "config"), "w") as file:
     file.write(config.format(
@@ -114,36 +126,19 @@ with open(os.path.join(directory_path, "config"), "w") as file:
         mac=generate_random_mac_address(),
         idmap_base=IDMAP_BASE,
         idmap_size=IDMAP_SIZE,
-        lxc_dir=LXC_DIR,
+        nfs_dir=NFS_DIR,
         bridge=LXC_BRIDGE,
         mem_limit=mem_limit,
     ))
 
 with open(os.path.join(directory_path, "pre-mount"), "w") as file:
-    file.write(pre_mount.format(name=name, base=base, lxc_dir=LXC_DIR, nfs_dir=NFS_DIR))
+    file.write(pre_mount.format(name=name, base=base))
 
 os.chmod(os.path.join(directory_path, "pre-mount"), 0o755)
 
-try:
-    completed_process = subprocess.run(
-        "bash pre-mount", shell=True, check=True, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=directory_path)
-    print("pre Command Output:")
-    print(completed_process.stdout)
-    print("pre Command Error:")
-    print(completed_process.stderr)
-except subprocess.CalledProcessError as e:
-    print("Error running the command: {}".format(e))
+run_step("pre-mount (rootfs provisioning)", "bash pre-mount", cwd=directory_path)
 
-bash_command = "~/.local/bin/lxc-start -n {} --logfile={}.log".format(name, name)
-
-try:
-    completed_process = subprocess.run(
-        bash_command, shell=True, check=True, text=True,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    print("Command Output:")
-    print(completed_process.stdout)
-    print("Command Error:")
-    print(completed_process.stderr)
-except subprocess.CalledProcessError as e:
-    print("Error running the command: {}".format(e))
+run_step(
+    "lxc-start",
+    "~/.local/bin/lxc-start -n {} --logfile={}.log".format(name, name),
+)

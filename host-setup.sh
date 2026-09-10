@@ -19,6 +19,13 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 RUNNER_USER="${RUNNER_USER:-virt}"
 RUNNER_TEMPLATE="${RUNNER_TEMPLATE:-crunner0}"
+# Lighter base for persistent runners: just Debian + crunner, no language
+# runtimes. Persistent runners copy their whole rootfs onto NFS (no overlay
+# -- overlayfs can't use NFS as an upperdir), so a smaller base means much
+# faster first-time provisioning; each runtime a persistent runner actually
+# needs gets installed into it on demand instead (e.g. codeland-build's own
+# rustup bootstrap step).
+RUNNER_TEMPLATE_PERSISTENT="${RUNNER_TEMPLATE_PERSISTENT:-crunner0-persistent}"
 RUNNER_DISTRO="${RUNNER_DISTRO:-debian}"
 RUNNER_RELEASE="${RUNNER_RELEASE:-trixie}"
 RUNNER_ARCH="${RUNNER_ARCH:-amd64}"
@@ -276,59 +283,66 @@ as_runner() {
 		"$@"
 }
 
+# build_runner_template NAME INSTALLER_GLOB
+# Creates and starts a fresh base container NAME, runs every installer
+# matching INSTALLER_GLOB inside it, then stops it. INSTALLER_GLOB is a glob
+# relative to installers/ (e.g. '*.sh' for everything, 'crunner.sh' for just
+# the core agent).
 build_runner_template() {
-	log "Building base container '${RUNNER_TEMPLATE}' as user '${RUNNER_USER}'"
+	local name="$1" installer_glob="$2"
+	log "Building base container '${name}' as user '${RUNNER_USER}'"
 	local lxc_dir="/home/${RUNNER_USER}/.local/share/lxc"
 	mkdir -p "${lxc_dir}"
 	chown -R "${RUNNER_USER}:${RUNNER_USER}" "${lxc_dir}"
 
-	if as_runner lxc-info -n "${RUNNER_TEMPLATE}" &>/dev/null; then
-		warn "Container '${RUNNER_TEMPLATE}' already exists, skipping creation."
+	if as_runner lxc-info -n "${name}" &>/dev/null; then
+		warn "Container '${name}' already exists, skipping creation."
 		return
 	fi
 
-	as_runner lxc-create -n "${RUNNER_TEMPLATE}" -t download -- \
+	as_runner lxc-create -n "${name}" -t download -- \
 		--dist "${RUNNER_DISTRO}" \
 		--release "${RUNNER_RELEASE}" \
 		--arch "${RUNNER_ARCH}" \
 		--force-cache
 
 	# Enable autostart so the template survives reboots.
-	echo "lxc.start.auto = 1" >> "${lxc_dir}/${RUNNER_TEMPLATE}/config"
+	echo "lxc.start.auto = 1" >> "${lxc_dir}/${name}/config"
 
-	log "Starting '${RUNNER_TEMPLATE}' to install language runtimes"
-	as_runner lxc-start -n "${RUNNER_TEMPLATE}" --daemon
+	log "Starting '${name}' to install runtimes (${installer_glob})"
+	as_runner lxc-start -n "${name}" --daemon
 
 	# Wait for the container to be ready.
 	for _ in $(seq 1 30); do
-		if as_runner lxc-info -n "${RUNNER_TEMPLATE}" | grep -q RUNNING; then
+		if as_runner lxc-info -n "${name}" | grep -q RUNNING; then
 			break
 		fi
 		sleep 1
 	done
 
-	# Install the language runtimes inside the container.
-	install_languages_in_container
+	install_languages_in_container "${name}" "${installer_glob}"
 
-	as_runner lxc-stop -n "${RUNNER_TEMPLATE}"
-	log "Base container '${RUNNER_TEMPLATE}' is ready."
+	as_runner lxc-stop -n "${name}"
+	log "Base container '${name}' is ready."
 }
 
+# install_languages_in_container NAME INSTALLER_GLOB
 install_languages_in_container() {
-	log "Installing language runtimes inside '${RUNNER_TEMPLATE}'"
+	local name="$1" installer_glob="$2"
+	log "Installing runtimes (${installer_glob}) inside '${name}'"
 	local script_dir="$(dirname "$0")/installers"
 
 	# Each installer uses `sudo apt`, so ensure sudo is present first.
-	as_runner lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -c \
+	as_runner lxc-attach -n "${name}" -- bash -c \
 		"apt-get update && apt-get install -y sudo"
 
 	local failed=0
-	for installer in "${script_dir}"/*.sh; do
+	for installer in "${script_dir}"/${installer_glob}; do
 		log "  Running $(basename "${installer}")"
 		# Run each installer independently so one failure does not abort the
 		# whole base-container build (e.g. an interpreter not packaged on
 		# this distro).
-		if ! as_runner lxc-attach -n "${RUNNER_TEMPLATE}" -- bash -s < "${installer}"; then
+		if ! as_runner lxc-attach -n "${name}" -- bash -s < "${installer}"; then
 			warn "  $(basename "${installer}") failed; continuing."
 			failed=$((failed+1))
 		fi
@@ -350,7 +364,8 @@ main() {
 	run_nfs_server
 	mount_nfs
 	install_openresty
-	build_runner_template
+	build_runner_template "${RUNNER_TEMPLATE}" '*.sh'
+	build_runner_template "${RUNNER_TEMPLATE_PERSISTENT}" 'crunner.sh'
 
 	log "Host setup complete."
 	echo

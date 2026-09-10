@@ -1,0 +1,44 @@
+#!/bin/bash
+#
+# CodeLand persistent runner rootfs provisioning.
+#
+# Usage:
+#   lxc-hack-clone-rootfs <name> <base>
+#
+# One-time copy of the base template's rootfs onto the shared NFS export, so
+# a persistent runner's rootfs lives entirely on NFS (see lxc-start-persistent
+# for why this isn't an overlay). Must run as root: some base rootfs files
+# (e.g. /etc/shadow) are not readable by the unprivileged virt user. This
+# script is whitelisted in sudoers so virt can provision without a broad `cp`
+# grant.
+#
+# Idempotent: a .provisioned marker on NFS skips the copy on a restart or
+# migrate, where the runner's NFS rootfs already holds its persisted state.
+
+set -euo pipefail
+
+name="${1:?Usage: lxc-hack-clone-rootfs <name> <base>}"
+base="${2:?Usage: lxc-hack-clone-rootfs <name> <base>}"
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+NFS_DIR="${NFS_DIR:-/nfs/runners}"
+
+if [ -e "$NFS_DIR/$name/.provisioned" ]; then
+    exit 0
+fi
+
+mkdir -p "$NFS_DIR/$name/rootfs"
+# tar instead of cp -a, excluding var/log/journal: systemd-journald marks its
+# active journal files with special inode attributes (append-only/immutable)
+# that block a plain chmod on them, and NFS can't relay that operation
+# anyway ("Operation not supported"), which cp treats as fatal. Those journal
+# files are just stale logs from building the base template -- a fresh
+# container gets its own journal on boot -- so skip them rather than fight
+# per-attribute cp flags.
+tar -C "$LXC_DIR/$base/rootfs" --exclude=./var/log/journal -cf - . \
+    | tar -C "$NFS_DIR/$name/rootfs" -xf -
+
+for file in "$NFS_DIR/$name/rootfs/etc/hostname" "$NFS_DIR/$name/rootfs/etc/hosts"; do
+    [ -f "$file" ] && sed -i -e "s/$base/$name/" "$file"
+done
+
+touch "$NFS_DIR/$name/.provisioned"

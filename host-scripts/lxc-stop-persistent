@@ -5,30 +5,27 @@
 # Usage:
 #   lxc-stop-persistent <name>
 #
-# Stops a persistent runner and unmounts its overlay, but KEEPS the writable
-# layer (delta0) on NFS so the runner can be restarted or moved to another
-# worker. The local container directory is removed; the NFS state is preserved.
+# Stops a persistent runner, but KEEPS its rootfs on NFS so it can be
+# restarted or moved to another worker. Only the local container directory
+# (just the LXC config -- the rootfs itself lives on NFS, see
+# lxc-start-persistent) is removed; the NFS state is preserved.
 
 set -euo pipefail
 
 name="${1:?Usage: lxc-stop-persistent <name>}"
 LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
 
-lxc-stop -k -n "$name"
+# Tolerate "already not running" -- this script is also called as
+# best-effort cleanup after a container that never finished starting (e.g.
+# a failed create), where lxc-stop legitimately has nothing to stop. Any
+# other failure still aborts via set -e below.
+lxc-stop -k -n "$name" || lxc-info -n "$name" -s 2>/dev/null | grep -q STOPPED
 echo "lxc stop: $? on $name"
 
 sleep 1
 
-# Unmount the overlay rootfs, retrying with a lazy unmount if busy.
-umount -A "$LXC_DIR/$name/rootfs/"
-echo "umount $LXC_DIR/$name/rootfs/ $?"
-if mount | grep -q "$LXC_DIR/$name/rootfs/"; then
-    umount -l -A "$LXC_DIR/$name/rootfs/"
-    echo "lazy umount $LXC_DIR/$name/rootfs/ $?"
-fi
-
-# Remove the local container directory (config, rootfs mountpoint, logs).
-# The NFS delta0/work0 are intentionally left in place.
+# Remove the local container directory (just the config -- the rootfs lives
+# on NFS and is intentionally left in place).
 rm -rf "$LXC_DIR/$name"
 
 # Remove the leftover systemd user scope cgroup (see lxc-hack-cgroup-clean).
