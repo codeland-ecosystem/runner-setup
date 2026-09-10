@@ -16,19 +16,15 @@ rootfs="$LXC_DIR/$name/rootfs"
 tmpfs="$LXC_DIR/$name/tmpfs"
 
 # Unmount the overlay rootfs, retrying with a lazy unmount if busy.
-umount "$rootfs/"
-echo "umount $rootfs/ $?"
+umount "$rootfs/" 2>/dev/null
 if mount | grep -q "$rootfs/"; then
-    umount -l "$rootfs/"
-    echo "lazy umount $rootfs/ $?"
+    umount -l "$rootfs/" 2>/dev/null
 fi
 
 # Unmount the tmpfs, retrying with a lazy unmount if busy.
-umount "$tmpfs"
-echo "umount $tmpfs $?"
+umount "$tmpfs" 2>/dev/null
 if mount | grep -q "$tmpfs"; then
-    umount -l "$tmpfs"
-    echo "lazy umount $tmpfs $?"
+    umount -l "$tmpfs" 2>/dev/null
 fi
 
 # Remove the leftover systemd user scope cgroup (see lxc-hack-cgroup-clean).
