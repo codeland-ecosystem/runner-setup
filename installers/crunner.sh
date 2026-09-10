@@ -38,6 +38,14 @@ if ! id runner &>/dev/null; then
 	useradd -m -s /bin/bash runner
 fi
 
+# Code submitted to crunner runs as this user, and codeland.sh's own remote
+# bootstrap step (installing build deps on demand) assumes it can `sudo apt
+# install` without a prompt. The container is already a throwaway sandbox
+# crunner lets callers run arbitrary code in, so passwordless root here
+# isn't a new privilege boundary -- it's just making that assumption true.
+echo 'runner ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/runner
+chmod 0440 /etc/sudoers.d/runner
+
 # Install the systemd service.
 cat > /etc/systemd/system/crunner.service <<'EOF'
 [Unit]
