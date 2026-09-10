@@ -31,4 +31,7 @@ fi
 # The NFS delta0/work0 are intentionally left in place.
 rm -rf "$LXC_DIR/$name"
 
+# Remove the leftover systemd user scope cgroup (see lxc-hack-cgroup-clean).
+sudo /usr/local/bin/lxc-hack-cgroup-clean "$name" 2>/dev/null || true
+
 echo "Persistent runner '$name' stopped; NFS state preserved."

@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# CodeLand leftover systemd scope cgroup cleanup.
+#
+# Usage:
+#   lxc-hack-cgroup-clean <name>
+#
+# Containers are started via `systemd-run --user --scope` (see lxc-start),
+# which creates an `lxc-<name>-0.scope` cgroup. When the container is
+# destroyed with plain lxc-destroy/lxc-stop, systemd marks the scope dead but
+# cannot remove the cgroup because LXC left behind sub-cgroups
+# (lxc.payload.*, lxc.monitor.*, init) owned by the mapped root. These empty
+# scopes accumulate and eventually exhaust the cgroup namespace. This script
+# removes the whole scope tree bottom-up. It must run as root (via sudo).
+
+name="${1:?Usage: lxc-hack-cgroup-clean <name>}"
+scope="/sys/fs/cgroup/user.slice/user-1001.slice/user@1001.service/app.slice/lxc-${name}-0.scope"
+
+if [ -d "$scope" ]; then
+    find "$scope" -depth -type d -exec rmdir {} \; 2>/dev/null
+    echo "cgroup cleanup $scope $?"
+fi

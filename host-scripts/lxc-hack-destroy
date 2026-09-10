@@ -30,3 +30,8 @@ if mount | grep -q "$tmpfs"; then
     umount -l "$tmpfs"
     echo "lazy umount $tmpfs $?"
 fi
+
+# Remove the leftover systemd user scope cgroup (see lxc-hack-cgroup-clean).
+# This script runs as root via sudo, so it can remove the root-owned
+# sub-cgroups that systemd left behind.
+/usr/local/bin/lxc-hack-cgroup-clean "$name" 2>/dev/null || true
