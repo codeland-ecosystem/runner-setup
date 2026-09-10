@@ -12,25 +12,22 @@ set -uo pipefail
 name="${1:?Usage: lxc-destroy-ephemeral <name>}"
 
 # Stop and destroy may fail if the container is not running or already gone;
-# that is fine (idempotent teardown), so ignore their exit codes.
-lxc-stop -k -n "$name" 2>/dev/null || true
-echo "lxc stop: $? on $name"
+# that is fine (idempotent teardown), so ignore their exit codes. Keep output
+# minimal so the manager's exec (1MB buffer) doesn't overflow.
+lxc-stop -k -n "$name" >/dev/null 2>&1 || true
 
 sleep 1
 
-sudo /usr/local/bin/lxc-hack-destroy "$name" 2>/dev/null || true
+sudo /usr/local/bin/lxc-hack-destroy "$name" >/dev/null 2>&1 || true
 
-lxc-destroy -f -n "$name" 2>/dev/null || true
-echo "lxc destroy: $? on $name"
+lxc-destroy -f -n "$name" >/dev/null 2>&1 || true
 
 # lxc-destroy can leave the container directory behind if a mount is still
 # busy (e.g. a failed cook that never fully started). Force-remove it so
 # failed cooks don't leak zombie directories that accumulate over time.
+# The rootfs contains files owned by the mapped root (165536), so removal
+# must run as root via sudo (whitelisted helper).
 LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
 if [ -d "$LXC_DIR/$name" ]; then
-    # Lazy-unmount anything still attached, then remove the directory.
-    umount -l "$LXC_DIR/$name/rootfs/" 2>/dev/null || true
-    umount -l "$LXC_DIR/$name/tmpfs" 2>/dev/null || true
-    rm -rf "$LXC_DIR/$name"
-    echo "removed leftover dir $LXC_DIR/$name"
+    sudo /usr/local/bin/lxc-hack-clean-dir "$name" 2>/dev/null || true
 fi

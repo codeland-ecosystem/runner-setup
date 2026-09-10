@@ -1,0 +1,21 @@
+#!/bin/sh
+#
+# CodeLand leftover runner directory cleanup.
+#
+# Usage:
+#   lxc-hack-clean-dir <name>
+#
+# Removes a leftover runner container directory that lxc-destroy could not
+# fully remove (e.g. after a failed cook). The rootfs contains files owned by
+# the mapped root (165536), so removal must run as root via sudo. This script
+# is whitelisted in sudoers so virt can clean up without a broad `rm` grant.
+
+name="${1:?Usage: lxc-hack-clean-dir <name>}"
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+
+if [ -d "$LXC_DIR/$name" ]; then
+    # Lazy-unmount anything still attached, then remove the directory.
+    umount -l "$LXC_DIR/$name/rootfs/" 2>/dev/null || true
+    umount -l "$LXC_DIR/$name/tmpfs" 2>/dev/null || true
+    rm -rf "$LXC_DIR/$name"
+fi
