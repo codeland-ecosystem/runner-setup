@@ -16,10 +16,10 @@ rootfs="$LXC_DIR/$name/rootfs"
 tmpfs="$LXC_DIR/$name/tmpfs"
 
 # Unmount the overlay rootfs, retrying with a lazy unmount if busy.
-umount -A "$rootfs/"
+umount "$rootfs/"
 echo "umount $rootfs/ $?"
 if mount | grep -q "$rootfs/"; then
-    umount -l -A "$rootfs/"
+    umount -l "$rootfs/"
     echo "lazy umount $rootfs/ $?"
 fi
 

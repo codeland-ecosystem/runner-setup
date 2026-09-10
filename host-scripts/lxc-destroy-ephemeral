@@ -22,3 +22,15 @@ sudo /usr/local/bin/lxc-hack-destroy "$name" 2>/dev/null || true
 
 lxc-destroy -f -n "$name" 2>/dev/null || true
 echo "lxc destroy: $? on $name"
+
+# lxc-destroy can leave the container directory behind if a mount is still
+# busy (e.g. a failed cook that never fully started). Force-remove it so
+# failed cooks don't leak zombie directories that accumulate over time.
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+if [ -d "$LXC_DIR/$name" ]; then
+    # Lazy-unmount anything still attached, then remove the directory.
+    umount -l "$LXC_DIR/$name/rootfs/" 2>/dev/null || true
+    umount -l "$LXC_DIR/$name/tmpfs" 2>/dev/null || true
+    rm -rf "$LXC_DIR/$name"
+    echo "removed leftover dir $LXC_DIR/$name"
+fi
