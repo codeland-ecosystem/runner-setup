@@ -10,6 +10,23 @@
 set -uo pipefail
 
 name="${1:?Usage: lxc-destroy-ephemeral <name>}"
+LXC_BRIDGE="${LXC_BRIDGE:-lxcbr0}"
+
+# Grab the DHCP lease's address and MAC before tearing anything down --
+# once the container is stopped/destroyed there is nothing left to query
+# them from, and an unreleased lease sits in dnsmasq's table until it
+# expires on its own. Under normal ephemeral churn that filled the
+# bridge's whole 253-address pool well within an hour, so a stuck runner
+# with no address to hand out was a matter of when, not if.
+ip=""
+mac=""
+if info=$(lxc-info -n "$name" 2>/dev/null); then
+    ip=$(printf '%s\n' "$info" | awk '/^IP:/ {print $2}' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -1)
+fi
+LXC_DIR="${LXC_DIR:-/home/virt/.local/share/lxc}"
+if [ -f "$LXC_DIR/$name/config" ]; then
+    mac=$(awk '/lxc\.net\.0\.hwaddr/ {print $3}' "$LXC_DIR/$name/config")
+fi
 
 # Stop and destroy may fail if the container is not running or already gone;
 # that is fine (idempotent teardown), so ignore their exit codes. Keep output
@@ -21,6 +38,13 @@ sleep 1
 sudo /usr/local/bin/lxc-hack-destroy "$name" >/dev/null 2>&1 || true
 
 lxc-destroy -f -n "$name" >/dev/null 2>&1 || true
+
+# Hand the address back to the pool immediately instead of waiting out the
+# lease time. Best-effort: a missing IP/MAC (container never got that far)
+# or dhcp_release itself failing is not worth blocking teardown over.
+if [ -n "$ip" ] && [ -n "$mac" ]; then
+    dhcp_release "$LXC_BRIDGE" "$ip" "$mac" >/dev/null 2>&1 || true
+fi
 
 # lxc-destroy can leave the container directory behind if a mount is still
 # busy (e.g. a failed cook that never fully started). Force-remove it so

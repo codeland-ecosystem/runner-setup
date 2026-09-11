@@ -65,7 +65,13 @@ install_lxc() {
 	log "Installing LXC"
 	apt-get update
 	apt-get install -y lxc lxc-templates debootstrap bridge-utils \
-		libvirt-clients qemu-utils curl wget ca-certificates
+		libvirt-clients qemu-utils curl wget ca-certificates dnsmasq-utils
+
+	# dnsmasq-utils' dhcp_release lets lxc-destroy-ephemeral hand a
+	# container's lease straight back to lxcbr0's DHCP pool instead of
+	# waiting out the lease time -- without it, ephemeral churn fills the
+	# pool (253 addresses) well within an hour and new containers get no
+	# address at all.
 
 	# LXC 5.0+ uses cgroup v2 by default. Verify it is available.
 	if [[ ! -d /sys/fs/cgroup ]]; then
